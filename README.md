@@ -1,5 +1,7 @@
 # Reconnecting WebSocket
 
+## (now with custom storage adapters for the message queue)
+
 [![Build Status](https://travis-ci.org/pladaria/reconnecting-websocket.svg?branch=master&v=1)](https://travis-ci.org/pladaria/reconnecting-websocket)
 [![Coverage Status](https://coveralls.io/repos/github/pladaria/reconnecting-websocket/badge.svg?branch=master&v=3)](https://coveralls.io/github/pladaria/reconnecting-websocket?branch=master)
 
@@ -16,6 +18,7 @@ WebSocket that will automatically reconnect if the connection is closed.
 -   Buffering. Will send accumulated messages on open
 -   Multiple builds available (see dist folder)
 -   Debug mode
+-   NEW! Custom Storage Adapters (sync-only) for message queues
 
 ## Install
 
@@ -107,6 +110,7 @@ type Options = {
     maxEnqueuedMessages?: number; // maximum number of messages to buffer until reconnection
     startClosed?: boolean; // start websocket in CLOSED state, call `.reconnect()` to connect
     debug?: boolean; // enables debug output
+    storageAdapter?: StorageAdapter; // specify custom storage adapter for message queue (defaults to in-memory array)
 };
 ```
 
@@ -123,6 +127,7 @@ maxRetries: Infinity,
 maxEnqueuedMessages: Infinity,
 startClosed: false,
 debug: false,
+storageAdapter: undefined;
 ```
 
 ## API
