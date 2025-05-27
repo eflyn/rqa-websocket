@@ -34,6 +34,7 @@ export type Options = {
     maxEnqueuedMessages?: number;
     startClosed?: boolean;
     debug?: boolean;
+    storageAdapter?: StorageAdapter;
 };
 
 const DEFAULT = {
@@ -51,6 +52,41 @@ const DEFAULT = {
 export type UrlProvider = string | (() => string) | (() => Promise<string>);
 
 export type Message = string | ArrayBuffer | Blob | ArrayBufferView;
+
+class InMemoryAdapter implements StorageAdapter {
+    private queue: Message[] = [];
+
+    enqueue(message: Message) {
+        this.queue.push(message);
+    }
+
+    getAll(): Message[] {
+        return this.queue.slice();
+    }
+
+    clear() {
+        this.queue = [];
+    }
+
+    length(): number {
+        return this.queue.length;
+    }
+}
+
+// at top of file (or in its own module)
+export interface StorageAdapter {
+    /** add a message to persistent store */
+    enqueue(message: Message): void;
+
+    /** return all queued messages, without removing them */
+    getAll(): Message[];
+
+    /** remove all queued messages (e.g. after they've been sent) */
+    clear(): void;
+
+    /** how many messages are queued */
+    length(): number;
+}
 
 export type ListenersMap = {
     error: Array<Events.WebSocketEventListenerMap['error']>;
@@ -74,7 +110,7 @@ export default class ReconnectingWebSocket {
     private _connectLock = false;
     private _binaryType: BinaryType = 'blob';
     private _closeCalled = false;
-    private _messageQueue: Message[] = [];
+    private _storage: StorageAdapter;
 
     private readonly _url: UrlProvider;
     private readonly _protocols?: string | string[];
@@ -84,6 +120,9 @@ export default class ReconnectingWebSocket {
         this._url = url;
         this._protocols = protocols;
         this._options = options;
+
+        this._storage = options.storageAdapter ?? new InMemoryAdapter();
+
         if (this._options.startClosed) {
             this._shouldReconnect = false;
         }
@@ -93,12 +132,15 @@ export default class ReconnectingWebSocket {
     static get CONNECTING() {
         return 0;
     }
+
     static get OPEN() {
         return 1;
     }
+
     static get CLOSING() {
         return 2;
     }
+
     static get CLOSED() {
         return 3;
     }
@@ -106,12 +148,15 @@ export default class ReconnectingWebSocket {
     get CONNECTING() {
         return ReconnectingWebSocket.CONNECTING;
     }
+
     get OPEN() {
         return ReconnectingWebSocket.OPEN;
     }
+
     get CLOSING() {
         return ReconnectingWebSocket.CLOSING;
     }
+
     get CLOSED() {
         return ReconnectingWebSocket.CLOSED;
     }
@@ -141,9 +186,9 @@ export default class ReconnectingWebSocket {
      * this will continue to climb. Read only
      */
     get bufferedAmount(): number {
-        const bytes = this._messageQueue.reduce((acc, message) => {
+        const bytes = this._storage.getAll().reduce((acc, message) => {
             if (typeof message === 'string') {
-                acc += message.length; // not byte size
+                acc += message.length;
             } else if (message instanceof Blob) {
                 acc += message.size;
             } else {
@@ -255,9 +300,9 @@ export default class ReconnectingWebSocket {
             this._ws.send(data);
         } else {
             const {maxEnqueuedMessages = DEFAULT.maxEnqueuedMessages} = this._options;
-            if (this._messageQueue.length < maxEnqueuedMessages) {
+            if (this._storage.length() < maxEnqueuedMessages) {
                 this._debug('enqueue', data);
-                this._messageQueue.push(data);
+                this._storage.enqueue(data);
             }
         }
     }
@@ -437,8 +482,8 @@ export default class ReconnectingWebSocket {
         this._ws!.binaryType = this._binaryType;
 
         // send enqueued messages (messages sent before websocket open event)
-        this._messageQueue.forEach(message => this._ws?.send(message));
-        this._messageQueue = [];
+        this._storage.getAll().forEach(msg => this._ws!.send(msg));
+        this._storage.clear();
 
         if (this.onopen) {
             this.onopen(event);
